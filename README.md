@@ -123,6 +123,112 @@ the example above writes 90 temperature records and 60 vibration records.
 
 ---
 
+## Fault injection and deterministic replay (unreleased)
+
+The unreleased checkout on `main` adds time-windowed faults and reproducible
+simulation ticks. To try these additions, install `pip install -e '.[config]'`.
+
+```python
+from dummysensors import Anomaly, AnomalyInjector
+from dummysensors.orchestrator import run_stream
+
+faults = AnomalyInjector(
+    [
+        Anomaly("spike", 1, 3, device_id="A", sensor_id="temp-0", offset=10),
+        Anomaly("drift", 1, 5, device_id="A", sensor_id="temp-0", rate_per_s=2),
+        Anomaly("dropout", 3, 4, device_id="A", sensor_id="temp-0"),
+    ]
+)
+records = []
+run_stream(
+    "device=A: temp*1; device=B: temp*1",
+    rate_hz=1,
+    duration_s=None,
+    total_count=6,
+    writer_for_type={"*": records.append},
+    anomalies=faults,
+    seed=42,
+    simulation_times=[0, 1, 2, 3, 4, 5],
+)
+print(records)
+```
+
+`Anomaly(kind, start_s, end_s, device_id=None, sensor_id=None, offset=0,
+rate_per_s=0)` defines one fault. Times are seconds since the run started; each
+window includes its start and excludes its end: `[start_s, end_s)`.
+
+| Kind | Effect while active |
+| --- | --- |
+| `spike` | Add the constant `offset` to each matching reading. |
+| `drift` | Add `rate_per_s * (t_s - start_s)` to each matching reading. |
+| `dropout` | Suppress the matching output record. |
+
+Omitted device or sensor IDs match all IDs in that dimension. Supplied IDs match
+exactly; sensor IDs such as `temp-0` are numbered per kind within each device.
+Overlapping offsets add together, and any matching dropout wins. Faults modify
+output only: the sensor model, cached dependency values and sampling schedule
+still advance during a dropout. Irradiance, PV and battery dependencies therefore
+use clean model readings. Fault-adjusted values are not clamped to the sensor's
+normal range. Fault boundaries must be finite and nonnegative, with `end_s`
+greater than `start_s`; offsets and drift rates must be finite.
+If fault arithmetic overflows, the run raises `ValueError` before emitting that
+record, rather than writing `Infinity`. Earlier records may already have been
+written. With a nonempty anomaly list, YAML device IDs must be nonempty strings;
+quote numeric-looking IDs. An omitted or empty anomaly list retains legacy ID
+handling. Scenario options and those IDs are validated before opening outputs.
+
+`anomalies`, `seed` and `simulation_times` are optional keyword arguments to
+`run_stream`. Explicit times must be finite, nonnegative and strictly increasing,
+with one entry per global tick. If `total_count` is given, it must match their
+length; otherwise a count derived from `duration_s * rate_hz` must match. If
+neither count nor duration is supplied, the number of explicit times determines
+the tick count. Explicit times bypass waiting while preserving per-sensor rate
+scheduling, so a slower sensor need not emit at every listed time.
+
+With the same integer seed, IDs, times and sensor configuration, each stochastic
+sensor replays its own local random stream. Streams are derived with SHA-256
+from the seed and device/sensor IDs, so adding or reordering unrelated devices
+or sensors does not disturb an existing stream when its IDs stay the same.
+Python's global random state is untouched. Default runs retain real-time pacing;
+a seed alone does not guarantee identical output files because actual elapsed
+times can differ.
+
+The runnable [examples/faults.yaml](examples/faults.yaml) uses two devices, fixed
+20 °C temperature models and the three faults above:
+
+```bash
+dummy-sensors run --config examples/faults.yaml
+```
+
+Device A's `temp-0` emits 20, 30 and 32 at seconds 0, 1 and 2, skips second 3,
+then emits 26 and 20 at seconds 4 and 5. Device B's temperature stays at 20.
+Its vibration stream demonstrates seeded noise. All records go to stdout.
+YAML accepts the same anomaly fields in a top-level `anomalies` list, an integer
+`seed` and a `simulation_times` list. When `--config` is used, configuration
+values take precedence over CLI options, including `--seed`.
+
+Both CLI commands also accept a seed for ordinary real-time runs:
+
+```bash
+dummy-sensors run --seed 42 --rate 10 --count 6 --spec 'device=A: temp*1' --out '*=stdout'
+dummy-sensors generate --seed 42 --rate 10 --count 6
+```
+
+Standalone stochastic sensors accept a `random.Random` instance through `rng`:
+
+```python
+import random
+from dummysensors import TemperatureSensor
+
+temp = TemperatureSensor(rng=random.Random(42))
+print([temp.read(t) for t in [0, 1, 2]])
+```
+
+This applies to temperature, vibration, irradiance, PV power and load sensors.
+Battery state-of-charge remains deterministic for a given power balance and times.
+
+---
+
 ## `--spec` format
 
 The `--spec` string describes devices and sensors:
@@ -320,7 +426,7 @@ Also supported: **CSV**. Planned: Kafka, Redis Stream, WebSocket.
 
 * `v0.2` ✅ — CSV writer, partitioning, YAML config
 * `v0.3` ✅ — Smart photovoltaic sensors (`irradiance`, `pv_power`, `load`, `soc`), per-sensor `rate_hz`, priority-based orchestration
-* `v0.4` 🚧 — AnomalyInjector (spike, dropout, drift), new sensors (`humidity`, `rpm`, `battery_voltage`, `gps`, `accel-3axis`)
+* `v0.4` 🚧 — Partially implemented: AnomalyInjector (spike, dropout, drift) and seeded replay are available in the unreleased checkout on `main`; new sensors (`humidity`, `rpm`, `battery_voltage`, `gps`, `accel-3axis`) remain planned.
 * `v0.5` 🚧 — Outputs: Kafka, Redis Stream, WebSocket live preview
 
 ---

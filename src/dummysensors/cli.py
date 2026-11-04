@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import random
 import time
 
 from .io import csv_writer, jsonl_writer
@@ -47,6 +48,9 @@ def main(argv=None):
     gen.add_argument("--rate", type=float, default=5.0)
     gen.add_argument("--duration", type=float, default=5.0)
     gen.add_argument("--count", type=int, default=None)
+    gen.add_argument(
+        "--seed", type=int, default=None, help="local random seed (times still matter)"
+    )
     gen.add_argument("--min", dest="min_val", type=float, default=15.0)
     gen.add_argument("--max", dest="max_val", type=float, default=30.0)
     # Back-compat: this is mapped to either `noise` or `noise_sigma`
@@ -59,6 +63,9 @@ def main(argv=None):
     run.add_argument("--rate", type=float, default=5.0)
     run.add_argument("--duration", type=float, default=None)
     run.add_argument("--count", type=int, default=None)
+    run.add_argument(
+        "--seed", type=int, default=None, help="local random seed (times still matter)"
+    )
     run.add_argument("--spec", type=str, help='e.g. "device=A: temp*2,vibration*1"')
     run.add_argument(
         "--out",
@@ -82,6 +89,8 @@ def main(argv=None):
             fields = {}
 
         ts_kwargs = {"min_val": args.min_val, "max_val": args.max_val}
+        if args.seed is not None:
+            ts_kwargs["rng"] = random.Random(args.seed)
         if "noise" in fields:
             ts_kwargs["noise"] = args.noise
         elif "noise_sigma" in fields:
@@ -128,4 +137,5 @@ def main(argv=None):
         total_count=args.count,
         writer_for_type=writers,
         partition_by=args.partition_by,
+        seed=args.seed,
     )

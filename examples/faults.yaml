@@ -1,0 +1,39 @@
+# Replay six ticks immediately. A has output faults; B is a clean comparison.
+rate: 1
+count: 6
+seed: 42
+simulation_times: [0, 1, 2, 3, 4, 5]
+
+outputs:
+  - type: jsonl
+    for: "*"
+
+devices:
+  - id: A
+    sensors:
+      - kind: temp
+        params: {min_val: 20, max_val: 20, noise_sigma: 0}
+  - id: B
+    sensors:
+      - kind: temp
+        params: {min_val: 20, max_val: 20, noise_sigma: 0}
+      - kind: vibration
+
+anomalies:
+  - kind: spike
+    start_s: 1
+    end_s: 3
+    device_id: A
+    sensor_id: temp-0
+    offset: 10
+  - kind: drift
+    start_s: 1
+    end_s: 5
+    device_id: A
+    sensor_id: temp-0
+    rate_per_s: 2
+  - kind: dropout
+    start_s: 3
+    end_s: 4
+    device_id: A
+    sensor_id: temp-0

@@ -1,3 +1,4 @@
+from .anomalies import Anomaly, AnomalyInjector
 from .sensors import (
     BatterySoCSensor,
     IrradianceSensor,
@@ -8,6 +9,8 @@ from .sensors import (
 )
 
 __all__ = [
+    "Anomaly",
+    "AnomalyInjector",
     "TemperatureSensor",
     "VibrationSensor",
     "IrradianceSensor",

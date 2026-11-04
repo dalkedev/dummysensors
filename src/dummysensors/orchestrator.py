@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import math
+import random
 import sys
 import time
-from typing import Any, Callable, Dict, List, Tuple
+from numbers import Real
+from typing import Any, Callable, Dict, Iterable, List, Tuple
 
+from .anomalies import AnomalyInjector
 from .registry import make_sensor
 from .spec import parse_spec
 
@@ -26,6 +30,45 @@ def _deadline_reached(now: float, deadline: float) -> bool:
     )
 
 
+def _simulation_options(rate_hz, duration_s, total_count, simulation_times, seed):
+    if seed is not None and (isinstance(seed, bool) or not isinstance(seed, int)):
+        raise ValueError("seed must be an integer or None")
+    times = None
+    if simulation_times is not None:
+        try:
+            times = tuple(simulation_times)
+        except TypeError as exc:
+            raise ValueError("simulation_times must be an iterable of seconds") from exc
+        previous = -1.0
+        for t in times:
+            if (
+                isinstance(t, bool)
+                or not isinstance(t, Real)
+                or not math.isfinite(t)
+                or t < 0
+                or t <= previous
+            ):
+                raise ValueError(
+                    "simulation_times must be finite, nonnegative and strictly increasing"
+                )
+            previous = t
+    if total_count is None and duration_s is None and times is not None:
+        n = len(times)
+    else:
+        n = total_count if total_count is not None else int(max(0.0, (duration_s or 0)) * rate_hz)
+    if times is not None and len(times) != n:
+        raise ValueError("simulation_times length must match the number of global ticks")
+    return n, times
+
+
+def _make_instance(kind, params, seed, device_id, sensor_id):
+    params = dict(params)
+    if seed is not None and kind in {"temp", "vibration", "irradiance", "pv_power", "load"}:
+        material = json.dumps([seed, device_id, sensor_id], ensure_ascii=True).encode("utf-8")
+        params["rng"] = random.Random(hashlib.sha256(material).digest())
+    return make_sensor(kind, **params)
+
+
 def run_stream(
     spec_str: str,
     rate_hz: float,
@@ -34,13 +77,27 @@ def run_stream(
     writer_for_type: Dict[str, Callable[[dict], None]],
     partition_by: str = "none",
     devices_cfg: List[dict] | None = None,
+    *,
+    anomalies: AnomalyInjector | None = None,
+    seed: int | None = None,
+    simulation_times: Iterable[float] | None = None,
 ) -> None:
     """
     Smart orchestrator:
       - builds instances either from devices_cfg (YAML) or from spec_str
       - per-sensor priority and (optional) per-sensor rate_hz
       - per-device tick context (e.g., irradiance -> pv_power -> load -> soc)
+
+    Faults affect emitted records only; dependencies always use clean readings.
+    A seed creates independent local RNG streams per device/sensor ID. Explicit
+    simulation_times supply elapsed seconds for unpaced replay; without them the
+    existing real-time scheduler runs, so a seed alone does not fix input times.
     """
+    n, simulation_times = _simulation_options(
+        rate_hz, duration_s, total_count, simulation_times, seed
+    )
+    if anomalies is not None and not isinstance(anomalies, AnomalyInjector):
+        raise ValueError("anomalies must be an AnomalyInjector or None")
     period_global = 1.0 / rate_hz if rate_hz > 0 else 0.0
 
     # 1) Build instances
@@ -59,8 +116,8 @@ def run_stream(
                 params = s.get("params", {}) or {}
                 idx.setdefault(kind, 0)
                 for _ in range(cnt):
-                    sensor = make_sensor(kind, **params)
                     sid = f"{kind}-{idx[kind]}"
+                    sensor = _make_instance(kind, params, seed, did, sid)
                     instances.append((did, sid, kind, sensor, prio, rate_ind))
                     idx[kind] += 1
     else:
@@ -71,8 +128,8 @@ def run_stream(
             for s in d.sensors:
                 idx.setdefault(s.kind, 0)
                 for _ in range(s.count):
-                    sensor = make_sensor(s.kind, **s.params)
                     sid = f"{s.kind}-{idx[s.kind]}"
+                    sensor = _make_instance(s.kind, s.params, seed, d.id, sid)
                     prio = _sensor_priority(s.kind, None)
                     instances.append((d.id, sid, s.kind, sensor, prio, None))
                     idx[s.kind] += 1
@@ -100,8 +157,7 @@ def run_stream(
         return cache[k]
 
     # 3) Main loop
-    t0 = time.perf_counter()
-    n = total_count if total_count is not None else int(max(0.0, (duration_s or 0)) * rate_hz)
+    t0 = time.perf_counter() if simulation_times is None else 0.0
 
     # per-sensor next due time (for per-sensor rate)
     next_due: Dict[Tuple[str, str], float] = {}  # (dev, sid) -> abs time
@@ -113,7 +169,7 @@ def run_stream(
     device_ctx: Dict[str, Dict[str, float]] = {}
 
     for i in range(n):
-        now = time.perf_counter()
+        now = time.perf_counter() if simulation_times is None else simulation_times[i]
         t_s = now - t0
 
         for dev, sid, kind, sensor, _prio, rate_ind in instances:
@@ -140,14 +196,18 @@ def run_stream(
 
             ctx[kind] = float(val)
 
-            rec = {
-                "ts_ms": int(t_s * 1000),
-                "device_id": dev,
-                "sensor_id": sid,
-                "type": kind,
-                "value": float(val),
-            }
-            _writer_for(rec)(rec)
+            emitted = (
+                float(val) if anomalies is None else anomalies.apply(float(val), t_s, dev, sid)
+            )
+            if emitted is not None:
+                rec = {
+                    "ts_ms": int(t_s * 1000),
+                    "device_id": dev,
+                    "sensor_id": sid,
+                    "type": kind,
+                    "value": float(emitted),
+                }
+                _writer_for(rec)(rec)
 
             # Anchor integer sample slots to the start, rather than wake-up time.
             # Skip missed slots arithmetically; never burst to replay old samples.
@@ -161,7 +221,7 @@ def run_stream(
                 next_due[(dev, sid)] = now
 
         # global pacing (keeps rough global rate even with per-sensor rates)
-        if period_global > 0:
+        if period_global > 0 and simulation_times is None:
             t_next = t0 + (i + 1) * period_global
             while True:
                 now2 = time.perf_counter()

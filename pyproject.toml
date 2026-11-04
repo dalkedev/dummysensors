@@ -34,7 +34,7 @@ dev = [
 path = "src/dummysensors/__init__.py"
 
 [tool.hatch.build.targets.sdist]
-include = ["src/dummysensors", "tests", "README.md", "LICENSE", "CHANGELOG.md", "Makefile", "requirements.txt"]
+include = ["src/dummysensors", "tests", "examples", "README.md", "LICENSE", "CHANGELOG.md", "Makefile", "requirements.txt"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/dummysensors"]

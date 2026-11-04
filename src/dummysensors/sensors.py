@@ -17,17 +17,18 @@ class OU:
     x_{t+dt} = x_t + theta*(mu - x_t)*dt + sigma*sqrt(dt)*N(0,1)
     """
 
-    def __init__(self, mu=0.0, theta=0.5, sigma=0.5, x0=0.0):
+    def __init__(self, mu=0.0, theta=0.5, sigma=0.5, x0=0.0, rng: random.Random | None = None):
         self.mu = mu
         self.theta = theta
         self.sigma = sigma
         self.x = x0
+        self.rng = rng if rng is not None else random.Random()
 
     def step(self, dt: float) -> float:
         # dt w sekundach; model w skali sekundowej
         if dt <= 0:
             dt = 1e-3
-        dx = self.theta * (self.mu - self.x) * dt + self.sigma * math.sqrt(dt) * random.gauss(
+        dx = self.theta * (self.mu - self.x) * dt + self.sigma * math.sqrt(dt) * self.rng.gauss(
             0, 1.0
         )
         self.x += dx
@@ -51,6 +52,7 @@ class TemperatureSensor:
     phase_shift: float = -4 * 3600  # max temp at evening
     noise_theta: float = 0.05
     noise_sigma: float = 0.3
+    rng: random.Random = field(default_factory=random.Random, repr=False, compare=False)
 
     def __post_init__(self):
         if self.min_val > self.max_val:
@@ -59,7 +61,7 @@ class TemperatureSensor:
         amp = 0.5 * (self.max_val - self.min_val)
         self._mid = mid
         self._amp = amp
-        self._ou = OU(mu=0.0, theta=self.noise_theta, sigma=self.noise_sigma, x0=0.0)
+        self._ou = OU(mu=0.0, theta=self.noise_theta, sigma=self.noise_sigma, x0=0.0, rng=self.rng)
         self._t_prev = None
 
     def read(self, t_s: float | None = None) -> float:
@@ -86,9 +88,10 @@ class VibrationSensor:
     noise_sigma: float = 0.05
     spike_prob: float = 0.001
     spike_scale: float = 4.0
+    rng: random.Random = field(default_factory=random.Random, repr=False, compare=False)
 
     def __post_init__(self):
-        self._ou = OU(mu=0.0, theta=self.noise_theta, sigma=self.noise_sigma, x0=0.0)
+        self._ou = OU(mu=0.0, theta=self.noise_theta, sigma=self.noise_sigma, x0=0.0, rng=self.rng)
         self._t_prev = None
 
     def read(self, t_s: float | None = None) -> float:
@@ -98,8 +101,8 @@ class VibrationSensor:
         sig += self._ou.step(dt)
         self._t_prev = t
         # occasional spike
-        if random.random() < self.spike_prob:
-            sig += random.choice((-1, 1)) * self.spike_scale * self.amp
+        if self.rng.random() < self.spike_prob:
+            sig += self.rng.choice((-1, 1)) * self.spike_scale * self.amp
         return sig
 
 
@@ -119,9 +122,12 @@ class IrradianceSensor:
     sunset: float = 18 * 3600
     cloud_theta: float = 1 / 600.0  # slow changes
     cloud_sigma: float = 0.05
+    rng: random.Random = field(default_factory=random.Random, repr=False, compare=False)
 
     def __post_init__(self):
-        self._cloud = OU(mu=0.0, theta=self.cloud_theta, sigma=self.cloud_sigma, x0=0.0)
+        self._cloud = OU(
+            mu=0.0, theta=self.cloud_theta, sigma=self.cloud_sigma, x0=0.0, rng=self.rng
+        )
         self._t_prev = None
 
     def _day_frac(self, t: float) -> float:
@@ -156,6 +162,7 @@ class PVPowerSensor:
     inverter_eff: float = 0.95
     p_kw_max: float = 4.8  # limit of the power inverter
     noise_sigma: float = 0.05
+    rng: random.Random = field(default_factory=random.Random, repr=False, compare=False)
 
     def read(self, t_s: float | None = None, irradiance: float | None = None) -> float:
         if irradiance is None:
@@ -163,7 +170,7 @@ class PVPowerSensor:
             return 0.0
         p_dc = (irradiance / 1000.0) * self.stc_kw
         p_ac = min(self.p_kw_max, max(0.0, p_dc * self.inverter_eff))
-        return max(0.0, p_ac + random.gauss(0, self.noise_sigma))
+        return max(0.0, p_ac + self.rng.gauss(0, self.noise_sigma))
 
 
 @dataclass
@@ -179,9 +186,10 @@ class LoadSensor:
     day_period_s: float = 24 * 3600
     noise_theta: float = 1 / 120.0
     noise_sigma: float = 0.05
+    rng: random.Random = field(default_factory=random.Random, repr=False, compare=False)
 
     def __post_init__(self):
-        self._ou = OU(mu=0.0, theta=self.noise_theta, sigma=self.noise_sigma, x0=0.0)
+        self._ou = OU(mu=0.0, theta=self.noise_theta, sigma=self.noise_sigma, x0=0.0, rng=self.rng)
         self._t_prev = None
 
     def read(self, t_s: float | None = None) -> float:

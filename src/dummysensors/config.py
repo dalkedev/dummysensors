@@ -3,8 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable, Dict
 
+from .anomalies import AnomalyInjector
 from .io import csv_writer, jsonl_writer
-from .orchestrator import run_stream
+from .orchestrator import _simulation_options, run_stream
 
 DEFAULT_CONFIG_CANDIDATES = (
     "config.sensors.yaml",
@@ -47,6 +48,22 @@ def run_from_config(path: str) -> None:
     duration = cfg.get("duration")
     count = cfg.get("count")
     partition_by = cfg.get("partition_by", "none")
+    anomalies = None
+    if "anomalies" in cfg:
+        parsed = AnomalyInjector.from_config(cfg["anomalies"])
+        if cfg["anomalies"]:
+            anomalies = parsed
+    seed = cfg.get("seed")
+    _, simulation_times = _simulation_options(
+        rate, duration, count, cfg.get("simulation_times"), seed
+    )
+    devices_cfg: list[dict[str, Any]] = cfg.get("devices", [])
+    if anomalies is not None:
+        for dev in devices_cfg:
+            if not isinstance(dev["id"], str) or not dev["id"]:
+                raise ValueError(
+                    "device id must be a nonempty string when anomalies are configured"
+                )
 
     # writers
     writers: Dict[str, Callable[[dict], None]] = {}
@@ -55,8 +72,6 @@ def run_from_config(path: str) -> None:
         writers[k] = _writer_for_decl(out)
 
     # pass full devices tree (with params/priority/rate_hz)
-    devices_cfg: list[dict[str, Any]] = cfg.get("devices", [])
-
     # for backward compatibility we still build a spec_str
     parts = []
     for dev in devices_cfg:
@@ -75,4 +90,7 @@ def run_from_config(path: str) -> None:
         writer_for_type=writers,
         partition_by=partition_by,
         devices_cfg=devices_cfg,
+        anomalies=anomalies,
+        seed=seed,
+        simulation_times=simulation_times,
     )

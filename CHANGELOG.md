@@ -6,6 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] — 0.3.3
 
+### Added
+
+- Time-windowed `Anomaly` and `AnomalyInjector` APIs for targeted spike, drift and
+  dropout faults, with additive overlap, dropout precedence and clean dependencies.
+- Seeded local random streams for stochastic sensors and explicit simulation times
+  for repeatable replay without real-time waiting; retain per-sensor scheduling.
+- Optional YAML `anomalies`, `seed` and `simulation_times` fields, plus `--seed`
+  on both CLI commands and a runnable stdout-only `examples/faults.yaml` demo.
+
 ### Fixed
 
 - Anchor sensor deadlines to the start of the run so wake-up jitter does not skip
