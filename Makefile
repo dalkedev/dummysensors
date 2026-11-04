@@ -20,12 +20,12 @@ test:
 	@$(PY) -m pytest -q
 
 lint:
-	@$(PY) -m ruff check src tests
-	@$(PY) -m ruff format --check src tests
+	@$(PY) -m ruff check .
+	@$(PY) -m ruff format --check .
 
 format:
-	@$(PY) -m ruff check --fix src tests
-	@$(PY) -m ruff format src tests
+	@$(PY) -m ruff check --fix .
+	@$(PY) -m ruff format .
 
 build:
 	@$(PY) -m build
