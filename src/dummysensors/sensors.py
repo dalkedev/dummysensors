@@ -1,18 +1,22 @@
 from __future__ import annotations
-import random
+
 import math
+import random
 from dataclasses import dataclass, field
 
 # ---------- helpers ----------
 
+
 def clamp(x: float, lo: float, hi: float) -> float:
     return lo if x < lo else hi if x > hi else x
+
 
 class OU:
     """
     Ornstein–Uhlenbeck: mean-reverting noise.
     x_{t+dt} = x_t + theta*(mu - x_t)*dt + sigma*sqrt(dt)*N(0,1)
     """
+
     def __init__(self, mu=0.0, theta=0.5, sigma=0.5, x0=0.0):
         self.mu = mu
         self.theta = theta
@@ -23,17 +27,22 @@ class OU:
         # dt w sekundach; model w skali sekundowej
         if dt <= 0:
             dt = 1e-3
-        dx = self.theta * (self.mu - self.x) * dt + self.sigma * math.sqrt(dt) * random.gauss(0, 1.0)
+        dx = self.theta * (self.mu - self.x) * dt + self.sigma * math.sqrt(dt) * random.gauss(
+            0, 1.0
+        )
         self.x += dx
         return self.x
 
+
 # ---------- Temperature ----------
+
 
 @dataclass
 class TemperatureSensor:
     """
     Temperature (°C): daily sine wave + OU noise.
     """
+
     type: str = field(default="temp", init=False)
     min_val: float = 15.0
     max_val: float = 30.0
@@ -55,14 +64,18 @@ class TemperatureSensor:
 
     def read(self, t_s: float | None = None) -> float:
         t = 0.0 if t_s is None else t_s
-        base = self._mid + self._amp * math.sin(2 * math.pi * ((t + self.phase_shift) % self.period_s) / self.period_s)
+        base = self._mid + self._amp * math.sin(
+            2 * math.pi * ((t + self.phase_shift) % self.period_s) / self.period_s
+        )
         # step OU
         dt = 0.0 if self._t_prev is None else max(1e-3, t - self._t_prev)
         n = self._ou.step(dt)
         self._t_prev = t
         return base + n
 
+
 # ---------- Vibration ----------
+
 
 @dataclass
 class VibrationSensor:
@@ -89,19 +102,22 @@ class VibrationSensor:
             sig += random.choice((-1, 1)) * self.spike_scale * self.amp
         return sig
 
+
 # ---------- PV / Energy ----------
+
 
 @dataclass
 class IrradianceSensor:
     """
     Solar irradiance (W/m2): half-sine day profile + slow OU clouds.
     """
+
     type: str = "irradiance"
     peak: float = 900.0
     day_period_s: float = 24 * 3600
     sunrise: float = 6 * 3600
     sunset: float = 18 * 3600
-    cloud_theta: float = 1/600.0   # slow changes
+    cloud_theta: float = 1 / 600.0  # slow changes
     cloud_sigma: float = 0.05
 
     def __post_init__(self):
@@ -125,6 +141,7 @@ class IrradianceSensor:
         self._t_prev = t
         return max(0.0, self.peak * frac * clouds)
 
+
 @dataclass
 class PVPowerSensor:
     """
@@ -133,10 +150,11 @@ class PVPowerSensor:
     where P_dc ≈ irradiance/1000 * p_kw_stc (power at 1000 W/m²),
     and eff ≈ overall efficiency (0..1).
     """
+
     type: str = "pv_power"
-    stc_kw: float = 5.0       # power STC at 1000 W/m2
+    stc_kw: float = 5.0  # power STC at 1000 W/m2
     inverter_eff: float = 0.95
-    p_kw_max: float = 4.8     # limit of the power inverter
+    p_kw_max: float = 4.8  # limit of the power inverter
     noise_sigma: float = 0.05
 
     def read(self, t_s: float | None = None, irradiance: float | None = None) -> float:
@@ -147,17 +165,19 @@ class PVPowerSensor:
         p_ac = min(self.p_kw_max, max(0.0, p_dc * self.inverter_eff))
         return max(0.0, p_ac + random.gauss(0, self.noise_sigma))
 
+
 @dataclass
 class LoadSensor:
     """
     Consumption (kW). Two daily peaks: morning and evening + OU.
     """
+
     type: str = "load_kw"
     base_kw: float = 0.5
     morning_kw: float = 0.8
     evening_kw: float = 1.2
     day_period_s: float = 24 * 3600
-    noise_theta: float = 1/120.0
+    noise_theta: float = 1 / 120.0
     noise_sigma: float = 0.05
 
     def __post_init__(self):
@@ -167,16 +187,19 @@ class LoadSensor:
     def read(self, t_s: float | None = None) -> float:
         t = 0.0 if t_s is None else t_s
         x = (t % self.day_period_s) / self.day_period_s
+
         # two bumps: morning ~0.25 (6:00), evening ~0.75 (18:00)
         def bump(mu, sigma):
             return math.exp(-0.5 * ((x - mu) / sigma) ** 2)
-        morning = self.morning_kw * bump(0.25, 0.07)   # ~6:00
-        evening = self.evening_kw * bump(0.75, 0.10)   # ~18:00
+
+        morning = self.morning_kw * bump(0.25, 0.07)  # ~6:00
+        evening = self.evening_kw * bump(0.75, 0.10)  # ~18:00
         base = self.base_kw + morning + evening
         dt = 0.0 if self._t_prev is None else max(1e-3, t - self._t_prev)
         n = self._ou.step(dt)
         self._t_prev = t
         return max(0.0, base + n)
+
 
 @dataclass
 class BatterySoCSensor:
@@ -186,6 +209,7 @@ class BatterySoCSensor:
     Convention: positive 'battery_power' = discharge (supplying kW to the load),
     negative = charge.
     """
+
     type: str = "soc"
     capacity_kwh: float = 10.0
     soc0: float = 50.0
@@ -221,6 +245,7 @@ class BatterySoCSensor:
 
         self._soc = clamp(soc, 0.0, 100.0)
         return self._soc
+
 
 # ! Note: PVPowerSensor and BatterySoCSensor require context (irradiance / power balance).
 # ^ The orchestrator can use them if you build a pipeline (e.g., irradiance first, then PV).

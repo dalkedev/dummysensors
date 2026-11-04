@@ -1,45 +1,60 @@
-name: ruff-autofix
+name: Ruff autofix
+
+# Manual only: the previous weekly schedule created 61 orphaned branches.
+# Repository Settings > Actions > General must allow Actions to create pull requests.
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "0 5 * * 1" # Monday 05:00 UTC
 
 permissions:
   contents: write
   pull-requests: write
 
 concurrency:
-  group: ruff-autofix-${{ github.ref }}
+  group: ruff-autofix
   cancel-in-progress: false
 
 jobs:
   ruff-autofix:
-    runs-on: ubuntu-24.04
-    if: ${{ !startsWith(github.ref_name, 'chore/ruff-autofix-') }}
+    if: github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout current branch
-        uses: actions/checkout@v5
+      - name: Check out the default branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.ref_name }}
-          fetch-depth: 0
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.15"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install the same tools as CI
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[config,dev]'
+      - name: Apply safe lint fixes and formatting
+        run: |
+          python -m ruff check --fix .
+          python -m ruff format .
+      - name: Validate fixes before creating a branch
+        run: |
+          python -m ruff check .
+          python -m ruff format --check .
+          python -m pytest -q
+      - name: Create or update the single autofix pull request
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+        with:
+          base: ${{ github.event.repository.default_branch }}
+          branch: chore/ruff-autofix
+          title: "style: apply Ruff fixes"
+          commit-message: "style: apply Ruff fixes"
+          body: |
+            Apply safe Ruff fixes and formatting with the project's development dependencies.
 
-      - name: Ruff format
-        uses: astral-sh/ruff-action@v1
-        with:
-          args: format .
-
-      - name: Ruff check --fix
-        uses: astral-sh/ruff-action@v1
-        with:
-          args: check --fix .
-        continue-on-error: true
-
-      - name: Create PR with fixes
-        uses: peter-evans/create-pull-request@v6
-        with:
-          base: ${{ github.ref_name }}
-          branch: chore/ruff-autofix-${{ github.ref_name }}-${{ github.run_id }}
-          title: "Ruff autofix (${{ github.ref_name }})"
-          commit-message: "style: ruff auto-fix"
-          labels: lint, automated
+            Validation: Ruff lint, Ruff formatting, and the full pytest suite passed.
+            GitHub's default GITHUB_TOKEN does not trigger CI for this pull request;
+            these checks ran before its branch was created or updated.
+          add-paths: |
+            src/
+            tests/
           delete-branch: true

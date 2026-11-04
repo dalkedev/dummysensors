@@ -4,6 +4,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] — 0.3.3
+
+### Fixed
+
+- Anchor sensor deadlines to the start of the run so wake-up jitter does not skip
+  default-rate samples or accumulate scheduling drift; skip missed slots after delays.
+- Retain the latest dependency reading per device between sampling ticks, so
+  faster PV and battery sensors can use slower irradiance and load sensors.
+- Advance the single-stream CLI's temperature model with elapsed simulation time.
+- Import CLI output helpers on Python 3.9 without evaluating unsupported union annotations.
+- Correct API examples to use `noise_sigma` and show the output partition needed
+  for per-type files.
+- Keep runtime and distribution versions consistent through one version source.
+
+### Changed
+
+- Update supported development tooling and the optional PyYAML dependency; remove
+  the unused NumPy dependency from contributor installation.
+- Use a portable Makefile and include tests and development instructions in the sdist.
+- Add explicit local Ruff configuration and apply a consistent format/import order.
+- Test Python 3.9–3.15 in CI, with additional macOS and Windows jobs and validated
+  package builds. Pin GitHub Actions to verified release commits.
+- Replace weekly per-run Ruff branches with an optional manual workflow using one
+  stable branch and validation before it creates changes.
+- Group future Python and Actions dependency updates with Dependabot.
+
 ## [0.1.0] - 04-09-2025
 
 ### Added

@@ -1,6 +1,2 @@
-pytest>=8.2
-ruff>=0.6
-build>=1.2
-hatchling>=1.25
-pyyaml>=6.0
-numpy
+# Contributor tooling and optional YAML support; the core has no runtime dependencies.
+-e .[config,dev]

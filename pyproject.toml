@@ -1,24 +1,50 @@
 [build-system]
-requires = ["hatchling>=1.25"]
+requires = ["hatchling>=1.27,<2"]
 build-backend = "hatchling.build"
 
 [project]
 name = "dummysensors"
-version = "0.3.2"
+dynamic = ["version"]
 description = "Dummy sensor data generator for testing IoT/ML pipelines"
 readme = "README.md"
 authors = [{ name = "Mateusz Dalke" }]
-license = { text = "MIT" }
+license = "MIT"
 requires-python = ">=3.9"
+keywords = ["sensors", "simulation", "iot", "photovoltaics", "testing"]
+
+[project.urls]
+Homepage = "https://github.com/dalkedev/dummysensors"
+Repository = "https://github.com/dalkedev/dummysensors"
+Issues = "https://github.com/dalkedev/dummysensors/issues"
+Changelog = "https://github.com/dalkedev/dummysensors/blob/main/CHANGELOG.md"
 
 [project.scripts]
 dummy-sensors = "dummysensors.cli:main"
 
 [project.optional-dependencies]
-config = ["PyYAML>=6.0"]
+config = ["PyYAML>=6.0.3,<7"]
+dev = [
+  "pytest>=8.4.2,<10",
+  "ruff>=0.17.3,<0.18",
+  "build>=1.3,<2",
+  "twine>=6.2,<8",
+]
+
+[tool.hatch.version]
+path = "src/dummysensors/__init__.py"
 
 [tool.hatch.build.targets.sdist]
-include = ["src/dummysensors", "README.md", "LICENSE"]
+include = ["src/dummysensors", "tests", "README.md", "LICENSE", "CHANGELOG.md", "Makefile", "requirements.txt"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/dummysensors"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py39"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I"]

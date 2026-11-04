@@ -8,6 +8,7 @@ config.sensors.yaml
 
 # out file
 out
+demo_out/
 
 # Visual Studio code
 .vscode/

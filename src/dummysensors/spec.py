@@ -1,6 +1,8 @@
 from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import List
+
 
 @dataclass
 class SensorSpec:
@@ -8,10 +10,12 @@ class SensorSpec:
     count: int
     params: dict
 
+
 @dataclass
 class DeviceSpec:
     id: str
     sensors: List[SensorSpec]
+
 
 def parse_spec(spec: str) -> list[DeviceSpec]:
     devices: list[DeviceSpec] = []

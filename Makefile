@@ -1,33 +1,44 @@
-SHELL := /usr/bin/env bash
-PY := .venv/Scripts/python.exe
-PIP := .venv/Scripts/pip.exe
+PYTHON ?= python3
+VENV ?= .venv
+ifeq ($(OS),Windows_NT)
+PY := $(VENV)/Scripts/python.exe
+else
+PY := $(VENV)/bin/python
+endif
 
-.PHONY: venv install test clean demo demo-clean
+.PHONY: venv install test lint format build check clean demo demo-clean
 
 venv:
-	@if [ ! -d .venv ]; then python -m venv .venv; fi
-	@$(PIP) -q install -U pip
+	@$(PYTHON) -c "import os, venv; venv.create('$(VENV)', with_pip=True) if not os.path.isdir('$(VENV)') else None"
 
 install: venv
-	@$(PIP) -q install -e .
-	@echo "✔ Installed dummysensors in editable mode"
+	@$(PY) -c "import importlib.util, subprocess, sys; subprocess.check_call([sys.executable, '-m', 'ensurepip', '--upgrade']) if importlib.util.find_spec('pip') is None else None"
+	@$(PY) -m pip install --upgrade pip
+	@$(PY) -m pip install -e ".[config,dev]"
 
 test:
 	@$(PY) -m pytest -q
 
+lint:
+	@$(PY) -m ruff check src tests
+	@$(PY) -m ruff format --check src tests
+
+format:
+	@$(PY) -m ruff check --fix src tests
+	@$(PY) -m ruff format src tests
+
+build:
+	@$(PY) -m build
+	@$(PY) -m twine check --strict dist/*
+
+check: lint test build
+
 clean:
-	@rm -rf build dist *.egg-info .pytest_cache
-	@find . -name "__pycache__" -type d -prune -exec rm -rf {} +
+	@$(PY) -c "import shutil; [shutil.rmtree(p, ignore_errors=True) for p in ('build', 'dist', '.pytest_cache', '.ruff_cache')]"
 
 demo-clean:
-	@rm -rf out demo_out
+	@$(PY) -c "import shutil; [shutil.rmtree(p, ignore_errors=True) for p in ('out', 'demo_out')]"
 
-# DEMO: 2 types of sensors, 2 devices, 3 outputs (2 files + stdout)
-demo: install
-	@mkdir -p demo_out
-	@dummy-sensors run --rate 5 --count 30 \
-	  --spec "device=engine-A: temp*1,vibration*2; device=room-101: temp*2" \
-	  --out "temp=demo_out/temp.jsonl" \
-	  --out "vibration=demo_out/vibration.jsonl" \
-	  --out "*=stdout"
-	@echo "✔ Demo done. Files in demo_out/"
+# Two sensor types, two devices, two output files and a stdout fallback.
+demo:
+	@$(PY) -c "from dummysensors.cli import main; main(['run', '--rate', '5', '--count', '30', '--partition-by', 'type', '--spec', 'device=engine-A: temp*1,vibration*2; device=room-101: temp*2', '--out', 'temp=demo_out/temp.jsonl', '--out', 'vibration=demo_out/vibration.jsonl', '--out', '*=stdout'])"

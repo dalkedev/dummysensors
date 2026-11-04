@@ -1,6 +1,8 @@
 from __future__ import annotations
+
 import os
 from pathlib import Path
+
 from dummysensors.config import run_from_config
 
 YAML = """
@@ -38,6 +40,7 @@ devices:
         priority: 5
         rate_hz: 5
 """
+
 
 def test_run_from_config_with_params_priority_and_rate(tmp_path: Path, monkeypatch):
     cfg = tmp_path / "config.sensors.yaml"

@@ -1,7 +1,7 @@
 # dummysensors
 
 [![PyPI version](https://img.shields.io/pypi/v/dummysensors.svg)](https://pypi.org/project/dummysensors/)
-[![CI](https://github.com/SculptTechProject/dummysensors/actions/workflows/ci.yml/badge.svg)](https://github.com/SculptTechProject/dummysensors/actions/workflows/ci.yml)
+[![CI](https://github.com/dalkedev/dummysensors/actions/workflows/ci.yml/badge.svg)](https://github.com/dalkedev/dummysensors/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 A lightweight generator of dummy sensor data for IoT and ML testing.
@@ -17,6 +17,12 @@ From PyPI (recommended):
 pip install dummysensors
 ```
 
+The core uses only the Python standard library (Python 3.9+). For YAML configuration:
+
+```bash
+pip install 'dummysensors[config]'
+```
+
 ---
 
 ## Quick Start (API)
@@ -25,8 +31,8 @@ pip install dummysensors
 from dummysensors import TemperatureSensor, VibrationSensor
 
 # create sensors
-temp = TemperatureSensor(min_val=18, max_val=24, noise=0.2)
-vib  = VibrationSensor(base_hz=50.0, amp=1.0, noise=0.05)
+temp = TemperatureSensor(min_val=18, max_val=24, noise_sigma=0.2)
+vib = VibrationSensor(base_hz=50.0, amp=1.0, noise_sigma=0.05)
 
 print(temp.read())            # e.g. 21.3
 print(vib.read(t_s=0.123))    # sinusoidal signal with noise
@@ -37,7 +43,7 @@ print(vib.read(t_s=0.123))    # sinusoidal signal with noise
 ## Config file (YAML)
 
 Instead of passing long `--spec` strings, you can define your setup in a YAML file.
-By default, `dummy-sensors run --config config.sensors.yaml` will look for a file named `config.sensors.yaml` in the current directory.
+Pass the configuration path explicitly, for example `dummy-sensors run --config config.sensors.yaml`.
 
 ### Example `config.sensors.yaml`
 
@@ -99,14 +105,21 @@ Run multiple sensors and devices, split by **type** into separate files:
 dummy-sensors run \
   --rate 5 \
   --count 30 \
+  --partition-by type \
   --spec "device=engine-A: temp*1,vibration*2; device=room-101: temp*2" \
   --out "temp=out/temp.jsonl" \
   --out "vibration=out/vib.jsonl" \
   --out "*=stdout"
 ```
 
+Use `--partition-by type` to route `temp=...` and `vibration=...` mappings, or
+`--partition-by device` for mappings such as `engine-A=out/engine.jsonl`.
+The default `--partition-by none` uses only the `*` output.
+`--count` is the number of global sampling ticks, not the total number of records:
+the example above writes 90 temperature records and 60 vibration records.
+
 > 👉 Check out a full demo with live plotting and JSONL logging here:
-> [dummysensors demo (ds-test)](https://github.com/SculptTechProject/ds-test)
+> [dummysensors demo (ds-test)](https://github.com/dalkedev/ds-test)
 
 ---
 
@@ -274,7 +287,9 @@ State‑of‑charge simulator (%), integrating the power balance. Sign conventio
 
 * Builds instances from a `spec_str` or a `config`.
 * Respects sensor **priority** and per‑sensor `rate_hz`.
-* `writer_for_type` is a map `type → callable(sample_dict)`, with `"*"` as the default writer.
+* Retains each device's latest dependency readings between sampling ticks, so slower irradiance or load sensors can feed faster PV and battery sensors.
+* Anchors sampling to the start time rather than each wake-up. Delayed ticks skip missed slots instead of emitting a burst of historical readings. The global tick rate caps how often any sensor can be read.
+* Selects output keys according to `partition_by`: sensor type, device ID, or only `"*"` for `none`. `writer_for_type` maps those keys to `callable(sample_dict)`.
 
 ---
 
@@ -313,15 +328,31 @@ Also supported: **CSV**. Planned: Kafka, Redis Stream, WebSocket.
 ## Development
 
 ```bash
-git clone https://github.com/SculptTechProject/dummysensors
+git clone https://github.com/dalkedev/dummysensors
 cd dummysensors
-pip install -e .
-pip install -r requirements.txt
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e '.[config,dev]'
+python -m ruff check src tests
+python -m ruff format --check src tests
+python -m pytest -q
+python -m build
+python -m twine check --strict dist/*
 ```
 
-* Project layout: **src-layout**
-* Tests: `pytest -q`
-* Lint/format: `ruff check src tests` and `ruff format`
+On Windows use `py -m venv .venv`, then `.venv\Scripts\Activate.ps1` in PowerShell.
+`requirements.txt` installs the same contributor extras; NumPy is not required.
+The Makefile also supports `make install`, `make check`, and `make demo` from a shell with Make.
+
+The CI matrix covers Python 3.9–3.15. Compatible tool versions are resolved for each
+interpreter; Python 3.9 uses pytest 8, while newer interpreters can use pytest 9.
+The package version has one source: `dummysensors.__version__`.
+
+Dependency updates are grouped by Dependabot. Ruff autofix is manual and reuses one
+branch; GitHub's **Actions → General → Allow GitHub Actions to create and approve pull
+requests** setting must allow PR creation before that optional workflow can open a PR.
+Normal CI only checks files and never creates branches.
 
 ---
 

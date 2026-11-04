@@ -1,11 +1,10 @@
 from __future__ import annotations
-from typing import Callable
-from typing import Dict
-from typing import Any
-from .orchestrator import run_stream
-from .io import jsonl_writer
-from .io import csv_writer
+
 from pathlib import Path
+from typing import Any, Callable, Dict
+
+from .io import csv_writer, jsonl_writer
+from .orchestrator import run_stream
 
 DEFAULT_CONFIG_CANDIDATES = (
     "config.sensors.yaml",
@@ -13,6 +12,7 @@ DEFAULT_CONFIG_CANDIDATES = (
     "dummysensors.yaml",
     "dummysensors.yml",
 )
+
 
 def find_config_path(start: str | None = None) -> str | None:
     """Return first matching config file path from DEFAULT_CONFIG_CANDIDATES in `start` or CWD."""
@@ -23,6 +23,7 @@ def find_config_path(start: str | None = None) -> str | None:
             return str(cand)
     return None
 
+
 def _writer_for_decl(decl: dict):
     fmt = str(decl.get("type", "jsonl")).lower()
     path = decl.get("path")
@@ -31,6 +32,7 @@ def _writer_for_decl(decl: dict):
             raise ValueError("CSV output requires 'path' in config.")
         return csv_writer(str(path))
     return jsonl_writer(path)  # stdout if path is None
+
 
 def run_from_config(path: str) -> None:
     try:

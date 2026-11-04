@@ -1,5 +1,5 @@
-import os
 import json
+import os
 
 from dummysensors.config import find_config_path, run_from_config
 
@@ -7,7 +7,9 @@ from dummysensors.config import find_config_path, run_from_config
 def test_find_config_path_prefers_config_sensors_yaml(tmp_path):
     # prepare two files – should prefer config.sensors.yaml
     (tmp_path / "config.yaml").write_text("rate: 1\ncount: 1\ndevices: []\n", encoding="utf-8")
-    (tmp_path / "config.sensors.yaml").write_text("rate: 1\ncount: 1\ndevices: []\n", encoding="utf-8")
+    (tmp_path / "config.sensors.yaml").write_text(
+        "rate: 1\ncount: 1\ndevices: []\n", encoding="utf-8"
+    )
 
     p = find_config_path(str(tmp_path))
     assert p is not None and p.endswith("config.sensors.yaml")

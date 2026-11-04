@@ -1,22 +1,30 @@
 from __future__ import annotations
-from typing import Callable
+
+import json
+import math
+import sys
+import time
+from typing import Any, Callable, Dict, List, Tuple
+
 from .registry import make_sensor
 from .spec import parse_spec
-from typing import Dict
-from typing import Any
-from typing import List
-from typing import Tuple
-import time
-import json
-import sys
 
 # default priorities if not given
 _DEFAULT_PRIORITY = {"irradiance": 0, "pv_power": 1, "load": 2, "soc": 3}
+
 
 def _sensor_priority(kind: str, override: int | None) -> int:
     if override is not None:
         return int(override)
     return _DEFAULT_PRIORITY.get(kind, 10)
+
+
+def _deadline_reached(now: float, deadline: float) -> bool:
+    # Multiplying different periods can put the same nominal tick a few ULPs apart.
+    return now >= deadline or math.isclose(
+        now, deadline, rel_tol=0.0, abs_tol=2 * math.ulp(deadline)
+    )
+
 
 def run_stream(
     spec_str: str,
@@ -100,18 +108,19 @@ def run_stream(
     for dev, sid, kind, *_ in instances:
         next_due[(dev, sid)] = t0  # schedule now
 
+    # Dependencies use each device's latest readings, including when their
+    # producers sample less frequently than the current global tick.
+    device_ctx: Dict[str, Dict[str, float]] = {}
+
     for i in range(n):
         now = time.perf_counter()
         t_s = now - t0
-
-        # per-device context for this tick
-        device_ctx: Dict[str, Dict[str, float]] = {}
 
         for dev, sid, kind, sensor, _prio, rate_ind in instances:
             # honor per-sensor rate if provided
             per = (1.0 / rate_ind) if (rate_ind and rate_ind > 0) else period_global
             due = next_due[(dev, sid)]
-            if per > 0 and now < due:
+            if per > 0 and not _deadline_reached(now, due):
                 continue  # not yet time for this sensor
 
             device_ctx.setdefault(dev, {})
@@ -120,14 +129,14 @@ def run_stream(
             # dependency-aware branches
             if kind == "pv_power":
                 irr = ctx.get("irradiance", 0.0)
-                val = sensor.read(t_s, irradiance=irr) # type: ignore[attr-defined]
+                val = sensor.read(t_s, irradiance=irr)  # type: ignore[attr-defined]
             elif kind == "soc":
                 load = ctx.get("load", 0.0)
-                pv   = ctx.get("pv_power", 0.0)
+                pv = ctx.get("pv_power", 0.0)
                 net = load - pv
-                val = sensor.step(t_s, net) # type: ignore[attr-defined]
+                val = sensor.step(t_s, net)  # type: ignore[attr-defined]
             else:
-                val = sensor.read(t_s) # type: ignore[attr-defined]
+                val = sensor.read(t_s)  # type: ignore[attr-defined]
 
             ctx[kind] = float(val)
 
@@ -140,8 +149,16 @@ def run_stream(
             }
             _writer_for(rec)(rec)
 
-            # schedule next due time for this sensor
-            next_due[(dev, sid)] = now + (per if per > 0 else 0)
+            # Anchor integer sample slots to the start, rather than wake-up time.
+            # Skip missed slots arithmetically; never burst to replay old samples.
+            if per > 0:
+                next_slot = math.floor(t_s / per) + 1
+                due = t0 + next_slot * per
+                if _deadline_reached(now, due):
+                    due = t0 + (next_slot + 1) * per
+                next_due[(dev, sid)] = due
+            else:
+                next_due[(dev, sid)] = now
 
         # global pacing (keeps rough global rate even with per-sensor rates)
         if period_global > 0:

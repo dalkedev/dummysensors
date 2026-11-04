@@ -1,6 +1,9 @@
 from __future__ import annotations
+
 import math
+
 from dummysensors import VibrationSensor
+
 
 def test_vibration_basic():
     amp = 1.0
@@ -9,7 +12,7 @@ def test_vibration_basic():
         amp=amp,
         noise_theta=2.0,
         noise_sigma=0.05,
-        spike_prob=0.0,      # ← disable spikes for a stable test
+        spike_prob=0.0,  # ← disable spikes for a stable test
         spike_scale=4.0,
     )
     dt = 0.001
